@@ -1,0 +1,2 @@
+cv_camera-master:usb_cam-develop:vision_opencv-melodic/cv_bridge:vision_opencv-melodic/image_geometry:vision_opencv-melodic/opencv_tests:vision_opencv-melodic/ros_cv:vision_opencv-melodic/vision_opencv
+-DCATKIN_DEVEL_PREFIX=/home/sz/unpeople/devel -DCMAKE_INSTALL_PREFIX=/home/sz/unpeople/install -G Unix Makefiles

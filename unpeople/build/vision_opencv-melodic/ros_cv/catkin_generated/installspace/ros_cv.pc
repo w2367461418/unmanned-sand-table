@@ -1,0 +1,8 @@
+prefix=/home/sz/unpeople/install
+
+Name: ros_cv
+Description: Description of ros_cv
+Version: 0.0.0
+Cflags: 
+Libs: -L/home/sz/unpeople/install/lib 
+Requires: 

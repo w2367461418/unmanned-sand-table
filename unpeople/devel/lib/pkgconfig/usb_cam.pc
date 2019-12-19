@@ -1,0 +1,8 @@
+prefix=/home/sz/unpeople/devel
+
+Name: usb_cam
+Description: Description of usb_cam
+Version: 0.3.6
+Cflags: -I/home/sz/unpeople/src/usb_cam-develop/include
+Libs: -L/home/sz/unpeople/devel/lib -lusb_cam
+Requires: 
