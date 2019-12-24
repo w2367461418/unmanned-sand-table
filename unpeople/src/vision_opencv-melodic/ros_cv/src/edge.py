@@ -40,7 +40,6 @@ class image_converter:
     self.pts = np.float32([[50,100],[263,100],[0,180],[319,180]])
     self.pts1 = np.float32([[0,0],[self.w-1,0],[0,self.h-1],[self.w-1,self.h-1]])
     self.m = cv2.getPerspectiveTransform(self.pts,self.pts1)
-  #  self.image_sub = rospy.Subscriber("/usb_cam/image_raw",Image,self.callback)
     self.image_sub = rospy.Subscriber("/cv_camera/image_raw",Image,self.callback)
  
   def clean_flag(self):
@@ -76,12 +75,9 @@ class image_converter:
 
     cv2.imshow('l',imghls_l)
     cv2.imshow('l_',dst_hls)
-  #  if count > 17000 and self.bmx_flag == 0:
-   #     self.bmx_flag = 1
-    #    t = Timer(2.0,self.clean_flag)
-    #    t.start()
-    #cv2.imshow('hls_lab',hls_lab)
-    return count  
+    return count 
+
+ 
   def extract(self,img): #找到距离中心线最近的4个轮廓
     img_height = 180 
     img_width = 320
@@ -92,8 +88,7 @@ class image_converter:
     mid = np.median(gray_cp)
     min_thresh = (int)(mid * 0.66)
     max_thresh = (int)(mid * 1.33)
-    #gray = cv2.equalizeHist(gray)
-    #edges = cv2.Canny(gray,50,200)
+
     edges = cv2.Canny(gray,min_thresh,max_thresh)
     temp = np.ones(edges.shape,np.uint8)*255  #白色幕布
     cv2.rectangle(edges,(0,0),(319,60),0,-1)
@@ -103,14 +98,14 @@ class image_converter:
     contours = h[1]
     contours = [contour for contour in contours  if ((abs)(cv2.fitLine(contour,cv2.DIST_L2,0.2,0.01,0.01)[1]/cv2.fitLine(contour,cv2.DIST_L2,0.2,0.01,0.01)[0]) > 0.45 and len(contour) > 100)]
     contours_bmx = [contour for contour in contours if len(contour) > 200]
-    print ('wai',len(contours))
-    if self.pitch > 25 and len(contours) >= 12 and self.pd_ping_flag == 0:
-        self.pd_ping_flag = 1
+    print ('bmx',len(contours_bmx))
+    if (len(contours_bmx) >= 9 and self.bmx_flag == 0 and self.pitch < 8):		#用以识别斑马线
+        self.bmx_flag = 1
         t = Timer(2.0,self.clean_flag)
         t.start()
-    print ('bmx',len(contours_bmx))
-    if (len(contours_bmx) >= 9 and self.bmx_flag == 0 and self.pitch < 8):
-        self.bmx_flag = 1
+    print ('wai',len(contours))
+    if self.pitch > 25 and len(contours) >= 12 and self.pd_ping_flag == 0:  		#用以识别大坡转平地的  突变区域
+        self.pd_ping_flag = 1
         t = Timer(2.0,self.clean_flag)
         t.start()
     cv2.drawContours(temp,contours,-1,(0,255,0),cv2.FILLED)
@@ -162,7 +157,7 @@ class image_converter:
             count_l = count_l + 1
         elif (pose_w >= 25 and vy / vx > 0):
             count_r = count_r + 1
-
+	#用以划分  左右 轮廓  
         if (pose_w >= 50 and vy/vx < 0) or (pose_w < 50 and (pose_x + pose_w + pose_x) / 2 <= img_width / 2):
             contour_position = 'l'
             ll_q = ll_q + pose_w
@@ -186,8 +181,8 @@ class image_converter:
     else:
         find_countr = 1 
         find_countl = 1
-    dis_minr = (heapq.nsmallest(find_countr,point_listr_index))
-    dis_minl = (heapq.nlargest(find_countl,point_listl_index))
+    dis_minr = (heapq.nsmallest(find_countr,point_listr_index))   		#得到 右边轮廓中  最左侧的轮廓   
+    dis_minl = (heapq.nlargest(find_countl,point_listl_index))			#得到 左边轮廓中  最右侧的轮廓
     deal_contoursl = []
     deal_contoursr = []
     for i in dis_minl:
@@ -196,7 +191,9 @@ class image_converter:
     for i in dis_minr:
         index = point_listr_index.index(i)
         deal_contoursr.append(point_listr[index])
-    if (ll_q - rr_q >= 100 or count_l - count_r >= 2):
+
+
+    if (ll_q - rr_q >= 100 or count_l - count_r >= 2):				#此条件说明在弯道左转 只搜寻 得到的 右边轮廓中的左侧一个
         for contour in deal_contoursl:
             for pose in contour:
                 x = pose[0][0]
@@ -204,16 +201,15 @@ class image_converter:
                 point = (x,y)
                 if y >= (int)(img_height / 5):
                     point_list_l.append(point)
-    elif (rr_q - ll_q >= 100 or count_r  - count_l >= 2):
+    elif (rr_q - ll_q >= 100 or count_r  - count_l >= 2):			#此条件说明在弯道右转
         for contour in deal_contoursr:
-            #[vxl,vyl,xl_,yl_] = cv2.fitLine(np.array(contour),cv2.DIST_L2,0.2,0.01,0.01)
             for pose in contour:
                 x = pose[0][0]
                 y = pose[0][1]
                 point = (x,y)
                 if y >= (int)(img_height / 5):
                     point_list_r.append(point)
-    elif (abs)(rr_q - ll_q) < 100 :
+    elif (abs)(rr_q - ll_q) < 100 :						#此条件说明在 直道  
         for contour in point_listl:
             for pose in contour:
                 x = pose[0][0]
@@ -329,9 +325,11 @@ class image_converter:
             ll_[y] = self.last_ll[y]
         if (abs)(self.last_rr[y] - rr_[y]) > 50 and self.bmx_flag == 0 and self.po_dao == 0 and self.pd_ping_flag == 0:
             rr_[y] = self.last_rr[y]
-    if self.bmx_flag == 1 or self.pd_ping_flag == 1 :
+
+    if self.bmx_flag == 1 or self.pd_ping_flag == 1:
         rr_ = np.full((img_height,1),280)
         ll_ = np.full((img_height,1),40)
+
     for index,i in enumerate(rr_):
         pose = ((int)(i[0]),int(index))
         cv2.circle(img,pose,1,(255,0,0),1)
@@ -360,33 +358,22 @@ class image_converter:
     actual_line = []
     mid_value = 0
     start_raw = 80
-#    print ('pitch:')
-#    print (self.pitch) 
+
+
     if ((self.pitch > 8 or self.pitch < -2) and self.po_dao == 0):
         self.po_dao = 1
         start_raw = 80 
         t = Timer(2.0,self.clean_flag)
         t.start()
-    self.pitch = float(self.pitch)
-    self.yaw = round(self.yaw,2)
-    text_pitch = str(self.pitch)
-    text_yaw = str(self.yaw)
-    bmx_flag = str(self.bmx_flag)
-    text_raw = str(start_raw)
-    text_pd = str(self.po_dao)
-    cv2.putText(img,text_pitch,(250,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)
-    cv2.putText(img,bmx_flag,(50,100),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)
-    cv2.putText(img,text_pd,(100,100),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)
-    cv2.putText(img,text_yaw,(0,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,0,200),2)
-    cv2.putText(img,text_raw,(250,100),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)
-    for i  in range(10):  #计算60行的中值 求平均
+    for i  in range(10):  #计算10行的中值 求平均
         mid_value = mid_value + mid[start_raw+i][0]
         pose = (img_width/2,start_raw+i)
         reference_line.append(pose)
+
     mid_value = (int)(mid_value / 10)
-
-
     print ('mid_value',mid_value)
+
+    #画出中线
     for i in range(15):
         pose = (mid_value,75+i)
         actual_line.append(pose)
@@ -395,19 +382,36 @@ class image_converter:
         cv2.circle(img,dian,1,(0,255,0),1)
     for dian in actual_line:
         cv2.circle(img,dian,1,(150,255,0),1)
+
+
     error = mid_value - (img_width / 2) + (ll_q - rr_q) *  0.1
-    if (self.bmx_flag == 1 or self.pd_ping_flag == 1):
+    
+    if (self.bmx_flag == 1 or self.pd_ping_flag == 1):				     #识别到斑马线或坡道时采用 陀螺仪导引
        error = -self.imu_data_deal() * 10 
 #    if (abs)(error - self.last_error) > 150:
 #        error = self.last_error
        #pass
 #    self.last_error = error
+
+
+    self.pitch = float(self.pitch)
+    self.yaw = round(self.yaw,2)
+    text_pitch = str(self.pitch)
+    text_yaw = str(self.yaw)
+    bmx_flag = str(self.bmx_flag)
+    text_raw = str(start_raw)
+    text_pd = str(self.po_dao)
     error = float(error)
     text_error = str(error)
-    cv2.putText(img,text_error,(100,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),5)
+    cv2.putText(img,text_pitch,(250,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)   #俯仰角显示
+    cv2.putText(img,bmx_flag,(50,100),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)     #斑马线标志检测
+    cv2.putText(img,text_pd,(100,100),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)  	#坡道检测标志
+    cv2.putText(img,text_yaw,(0,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,0,200),2)		#航向角显示
+    cv2.putText(img,text_raw,(250,100),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),2)    #图像前瞻行显示
+    cv2.putText(img,text_error,(100,50),cv2.FONT_HERSHEY_COMPLEX,1.0,(255,255,200),5)   #图像处理后的偏差
     cv2.imshow("final",img)
     return error 
-
+ 
   def imu_callback(self,data):
      self.pitch = data.orientation.y 
      self.yaw = data.orientation.z 
@@ -418,31 +422,24 @@ class image_converter:
     except CvBridgeError as e:
       print(e)
     start = time.time()
+
     img_cp = np.copy(cv_image)
     cv2.imshow('one',cv_image)
     
-    transform_img = self.transform(cv_image,self.m)  #透视变换后的图像
-    img_hl = self.rgb_hls_lab(transform_img)
-    contours,edges = self.extract(transform_img)     #边缘提取后的轮廓和图像
-    print (edges.shape)
-    print (self.last_img.shape)
-    cha = np.subtract(edges,self.last_img)
-    cv2.imshow('img_cha',cha)
-    #contours,edges = self.extract(bgr_img)     #边缘提取后的轮廓和图像
-    self.last_img = np.copy(edges)
-    cv2.imshow('img___',self.last_img)
-    error = self.counts_select(contours,edges,transform_img)    #中线提取 最终得到偏差值
+    transform_img = self.transform(cv_image,self.m)  			 #透视变换后的图像
+    contours,edges = self.extract(transform_img)   			 #边缘提取后的一次边缘 滤除
+    error = self.counts_select(contours,edges,transform_img)    	 #中线提取 最终得到偏差值
     #error = 0
+
+
     end = time.time()
-    print ('cost time',end-start)
-    count = 0
-    if self.bmx_flag == 1:
-        str_zerba = 1
-    else:
-        str_zerba = 0
-    str_error = "%d"%(error)   #将数字转换为字符串
-    str_msg = str_error + " " + str(str_zerba)
-    self.pub.publish(str_msg)     #发布偏差话题
+    print ('cost time',end-start)   #计算程序耗费时间
+
+
+    #图像得到的 标志信息 和 偏差信息 以/cv/error 话题消息传递给 驱动节点  art_driver_node 
+    str_error = "%d"%(error)  						 #将数字转换为字符串
+    str_msg = str_error + " " + str(self.bmx_flag)
+    self.pub.publish(str_msg)    					 #发布偏差话题
     
     cv2.waitKey(3)
     try:
